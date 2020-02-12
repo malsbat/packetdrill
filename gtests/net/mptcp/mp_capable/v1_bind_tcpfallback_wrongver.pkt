@@ -6,7 +6,7 @@
 
 +0    bind(3, ..., ...) = 0
 +0    listen(3, 1) = 0
-+0      < S 0:0(0) win 32792 <mss 1460,sackOK,nop,nop,nop,wscale 8,mpcapable v1 flags 0x41 nokey>
++0      < S 0:0(0) win 32792 <mss 1460,sackOK,nop,nop,nop,wscale 8,mpcapable v0 flags[flag_h] keys[ckey=2]>
 +0      > S. 0:0(0) ack 1 <mss 1460,nop,nop,sackOK,nop,wscale 8>
 +0.01   < . 1:1(0) ack 1 win 257
 +0    accept(3, ..., ...) = 4
