@@ -519,8 +519,13 @@ int mptcp_subtype_mp_capable(struct packet *packet_to_modify,
 		if(direction == DIRECTION_OUTBOUND)
 			new_subflow_outbound(live_packet);
 	}
+	// Ack packet with data
+	else if (optlen == TCPOLEN_MP_CAPABLE_DLL_WOCS ||
+                 optlen == TCPOLEN_MP_CAPABLE_DLL){
+		error = mptcp_set_mp_cap_keys(tcp_opt_to_modify);
+	}
 	// SYN_ACK, packetdrill->kernel
-	else if (tcp_opt_to_modify->length == TCPOLEN_MP_CAPABLE_SYN &&
+	else if (optlen == TCPOLEN_MP_CAPABLE_SYN &&
 		 direction == DIRECTION_INBOUND &&
 		 packet_to_modify->tcp->ack) {
 		error = mptcp_gen_key();

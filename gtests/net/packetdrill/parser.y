@@ -878,7 +878,7 @@ struct tcp_option *dss_do_dsn_dack( int dack_type, int dack_val,
 %type <mpls_stack> mpls_stack
 %type <mpls_stack_entry> mpls_stack_entry
 %type <integer> opt_mpls_stack_bottom
-%type <integer> opt_icmp_mtu fin ssn dll dss_checksum
+%type <integer> opt_icmp_mtu fin ssn dll dss_checksum mpc_checksum
 %type <integer> mp_capable_no_cs is_backup address_id rand port
 %type <integer> flag_a flag_b flag_c flag_d flag_e flag_f flag_g flag_h no_flags
 %type <integer> mpc_ver mpc_flags_list mpc_flags mpc_flag mpc_keys
@@ -1927,6 +1927,13 @@ mpc_keys
 		add_mp_var_script_defined($5.name, &$5.value, 8);
 }
 
+mpc_checksum
+: {$$ = UNDEFINED;} 		// default value
+| CKSUM '=' INTEGER {
+	$$ = (u16)$3;
+}
+;
+
 tcp_option
 : NOP              { $$ = tcp_option_new(TCPOPT_NOP, 1); }
 | EOL              { $$ = tcp_option_new(TCPOPT_EOL, 1); }
@@ -1985,13 +1992,24 @@ tcp_option
 		free(error);
 	}
 }
-| MPCAPABLE mpc_ver mpc_flags_list mpc_keys {
+| MPCAPABLE mpc_ver mpc_flags_list mpc_keys dll mpc_checksum {
+        u8 option_bytes = TCPOLEN_MP_CAPABLE_V1_SYN + (8 * $4);
 
-	$$ = tcp_option_new(TCPOPT_MPTCP,
-			    TCPOLEN_MP_CAPABLE_V1_SYN + (8 * $4));
+        if($5 != UNDEFINED && $6 == UNDEFINED){
+            option_bytes += 2;
+        }else if($5 != UNDEFINED && $6 != UNDEFINED){
+            option_bytes += 4;
+        }
+	$$ = tcp_option_new(TCPOPT_MPTCP, option_bytes);
 	$$->data.mp_capable.version = $2;
 	$$->data.mp_capable.flags = $3;
 	$$->data.mp_capable.subtype = MP_CAPABLE_SUBTYPE;
+        if($5 != UNDEFINED && $6 == UNDEFINED){
+            $$->data.mp_capable.dll_wo_cs.dll = htons($5);
+        }else if($5 != UNDEFINED && $6 != UNDEFINED){
+            $$->data.mp_capable.dll_w_cs.dll = htons($5);
+            $$->data.mp_capable.dll_w_cs.checksum = htons($6);
+        }
 }
 | mp_capable_no_cs mptcp_var mptcp_var_or_empty flag_a flag_b flag_c flag_d flag_e flag_f flag_g flag_h no_flags{
 

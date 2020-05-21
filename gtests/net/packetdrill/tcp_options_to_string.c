@@ -327,6 +327,17 @@ int tcp_options_to_string(struct packet *packet,
 					option->data.mp_capable.syn.key);
 			} else if (option->length == TCPOLEN_MP_CAPABLE_V1_SYN) {
 				/* nothing worth printing here\n */
+                        } else if (option->length == TCPOLEN_MP_CAPABLE_DLL_WOCS) {
+				fprintf(s, "sender_key: %llu receiver_key: %llu dll: %u",
+					option->data.mp_capable.dll_wo_cs.sender_key,
+					option->data.mp_capable.dll_wo_cs.receiver_key,
+					ntohs(option->data.mp_capable.dll_wo_cs.dll));
+                        } else if (option->length == TCPOLEN_MP_CAPABLE_DLL) {
+				fprintf(s, "sender_key: %llu receiver_key: %llu dll: %u checksum: %u",
+					option->data.mp_capable.dll_w_cs.sender_key,
+					option->data.mp_capable.dll_w_cs.receiver_key,
+					ntohs(option->data.mp_capable.dll_w_cs.dll),
+					ntohs(option->data.mp_capable.dll_w_cs.checksum));
 			} else {
 				fprintf(s, "mp_capable unknown length");
 			}

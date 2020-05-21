@@ -153,6 +153,17 @@ struct tcp_option {
 					u64 sender_key;
 					u64 receiver_key;
 				} no_syn;
+                                struct {
+                                        u64 sender_key;
+                                        u64 receiver_key;
+                                        u16 dll; // data level length
+                                } __packed dll_wo_cs;
+                                    struct {
+                                        u64 sender_key;
+                                        u64 receiver_key;
+                                        u16 dll; // data level length
+                                        u16 checksum;
+                                } __packed dll_w_cs;
 			};
 		} __packed mp_capable;
 
