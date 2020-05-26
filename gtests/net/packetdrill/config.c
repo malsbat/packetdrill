@@ -190,10 +190,12 @@ static void set_ipv4_defaults(struct config *config)
 	if (strlen(config->live_netmask_ip_string) == 0)
 		strcpy(config->live_netmask_ip_string,
 		       DEFAULT_V4_LIVE_NETMASK_IP_STRING);
-	if (strlen(config->live_local_ip_string) == 0)
-		generate_random_ipv4_addr(config->live_local_ip_string,
+	if (config->live_local_ips == NULL) {
+		config->live_local_ips = calloc(1, sizeof(struct config_ip));
+		generate_random_ipv4_addr(config->live_local_ips->string,
 					  DEFAULT_V4_LIVE_LOCAL_IP_STRING,
 					  config->live_netmask_ip_string);
+	}
 	if (strlen(config->live_gateway_ip_string) == 0)
 		strcpy(config->live_gateway_ip_string,
 		       DEFAULT_V4_LIVE_GATEWAY_IP_STRING);
@@ -205,10 +207,12 @@ static void set_ipv6_defaults(struct config *config)
 	if (strlen(config->live_remote_ip_string) == 0)
 		strcpy(config->live_remote_ip_string,
 		       DEFAULT_V6_LIVE_REMOTE_IP_STRING);
-	if (strlen(config->live_local_ip_string) == 0)
-		generate_random_ipv6_addr(config->live_local_ip_string,
+	if (config->live_local_ips == NULL) {
+		config->live_local_ips = calloc(1, sizeof(struct config_ip));
+		generate_random_ipv6_addr(config->live_local_ips->string,
 					  DEFAULT_V6_LIVE_LOCAL_IP_STRING,
 					  DEFAULT_V6_LIVE_PREFIX_LEN);
+	}
 	if (strlen(config->live_gateway_ip_string) == 0)
 		strcpy(config->live_gateway_ip_string,
 		       DEFAULT_V6_LIVE_GATEWAY_IP_STRING);
@@ -239,7 +243,7 @@ void set_default_config(struct config *config)
 	config->tcp_ts_tick_usecs	= 0;	/* disable checks of TS val */
 
 	config->live_remote_ip_string[0]	= '\0';
-	config->live_local_ip_string[0]		= '\0';
+	config->live_local_ips                  = NULL;
 	config->live_gateway_ip_string[0]	= '\0';
 	config->live_netmask_ip_string[0]	= '\0';
 
@@ -276,7 +280,10 @@ static void finalize_ipv4_config(struct config *config)
 {
 	set_ipv4_defaults(config);
 
-	config->live_local_ip	= ipv4_parse(config->live_local_ip_string);
+	struct config_ip *ip;
+	for (ip = config->live_local_ips; ip != NULL; ip = ip->next) {
+		ip->address = ipv4_parse(ip->string);
+	}
 
 	config->live_remote_prefix =
 		ipv4_prefix_parse(config->live_remote_ip_string);
@@ -285,7 +292,7 @@ static void finalize_ipv4_config(struct config *config)
 	config->live_prefix_len =
 		netmask_to_prefix(config->live_netmask_ip_string);
 	config->live_gateway_ip = ipv4_parse(config->live_gateway_ip_string);
-	config->live_bind_ip	= config->live_local_ip;
+	config->live_bind_ip	= config->live_local_ips->address; // TODO(malsbat)
 	config->live_connect_ip	= config->live_remote_ip;
 	config->socket_domain	= AF_INET;
 	config->wire_protocol	= AF_INET;
@@ -296,7 +303,10 @@ static void finalize_ipv4_mapped_ipv6_config(struct config *config)
 {
 	set_ipv4_defaults(config);
 
-	config->live_local_ip	= ipv4_parse(config->live_local_ip_string);
+        struct config_ip *ip;
+	for (ip = config->live_local_ips; ip != NULL; ip = ip->next) {
+		ip->address = ipv4_parse(ip->string);
+	}
 
 	config->live_remote_prefix =
 		ipv4_prefix_parse(config->live_remote_ip_string);
@@ -305,7 +315,7 @@ static void finalize_ipv4_mapped_ipv6_config(struct config *config)
 	config->live_prefix_len =
 		netmask_to_prefix(config->live_netmask_ip_string);
 	config->live_gateway_ip = ipv4_parse(config->live_gateway_ip_string);
-	config->live_bind_ip	= ipv6_map_from_ipv4(config->live_local_ip);
+	config->live_bind_ip	= ipv6_map_from_ipv4(config->live_local_ips->address); // TODO(malsbat)
 	config->live_connect_ip	= ipv6_map_from_ipv4(config->live_remote_ip);
 	config->socket_domain	= AF_INET6;
 	config->wire_protocol	= AF_INET;
@@ -316,7 +326,10 @@ static void finalize_ipv6_config(struct config *config)
 {
 	set_ipv6_defaults(config);
 
-	config->live_local_ip	= ipv6_parse(config->live_local_ip_string);
+	struct config_ip *ip;
+	for (ip = config->live_local_ips; ip != NULL; ip = ip->next) {
+		ip->address = ipv6_parse(ip->string);
+	}
 
 	config->live_remote_prefix =
 		ipv6_prefix_parse(config->live_remote_ip_string);
@@ -324,7 +337,7 @@ static void finalize_ipv6_config(struct config *config)
 
 	config->live_prefix_len	= DEFAULT_V6_LIVE_PREFIX_LEN;
 	config->live_gateway_ip = ipv6_parse(config->live_gateway_ip_string);
-	config->live_bind_ip	= config->live_local_ip;
+	config->live_bind_ip	= config->live_local_ips->address; // TODO(malsbat)
 	config->live_connect_ip	= config->live_remote_ip;
 	config->socket_domain	= AF_INET6;
 	config->wire_protocol	= AF_INET6;
@@ -417,7 +430,7 @@ static void process_option(int opt, char *optarg, struct config *config,
 		strncpy(config->live_remote_ip_string, optarg, ADDR_STR_LEN-1);
 		break;
 	case OPT_LOCAL_IP:
-		strncpy(config->live_local_ip_string, optarg, ADDR_STR_LEN-1);
+		ips_insert(&config->live_local_ips, optarg);
 		break;
 	case OPT_GATEWAY_IP:
 		strncpy(config->live_gateway_ip_string, optarg, ADDR_STR_LEN-1);

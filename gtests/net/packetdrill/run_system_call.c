@@ -1494,7 +1494,7 @@ static int run_syscall_accept(struct state *state,
 
 	socket->live.remote.ip		= ip;
 	socket->live.remote.port	= port;
-	socket->live.local.ip		= state->config->live_local_ip;
+	socket->live.local.ip		= state->config->live_local_ips->address; // TODO(malsbat)
 	socket->live.local.port		= htons(state->config->live_bind_port);
 
 	socket->fd.live_fd		= live_accepted_fd;

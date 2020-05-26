@@ -231,7 +231,7 @@ static struct socket *handle_listen_for_script_packet(
 	 */
 	socket->live.remote.ip		= config->live_remote_ip;
 	socket->live.remote.port	= htons(next_ephemeral_port(state));
-	socket->live.local.ip		= config->live_local_ip;
+	socket->live.local.ip		= config->live_local_ips->address; // TODO(malsbat)
 	socket->live.local.port		= htons(config->live_bind_port);
 	socket->live.remote_isn		= ntohl(packet->tcp->seq);
 	socket->fd.live_fd		= -1;
@@ -2055,7 +2055,7 @@ static int do_inbound_script_packet(
 					packet->icmpv4 ||
 					packet->icmpv6)) {
 		socket->live.remote.ip = state->config->live_remote_ip;
-		socket->live.local.ip  = state->config->live_local_ip;
+		socket->live.local.ip  = state->config->live_local_ips->address; // TODO(malsbat)
 		if (!(socket->live.remote.port))
 			socket->live.remote.port = htons(state->config->live_connect_port);
 		if (!(socket->live.local.port))

@@ -133,7 +133,7 @@ struct netdev *wire_server_netdev_new(
 	/* Make sure we only see packets from the machine under test. */
 	packet_socket_set_filter(netdev->psock,
 				 client_ether_addr,
-				 &config->live_local_ip);  /* client IP */
+				 &config->live_local_ips->address);  /* client IP */ // TODO(malsbat)
 
 	return (struct netdev *)netdev;
 }

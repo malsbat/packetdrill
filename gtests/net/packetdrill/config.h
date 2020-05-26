@@ -86,6 +86,25 @@ static inline char *definition_get(struct definition *defs, char *symbol)
 	return def ? def->value : NULL;
 }
 
+struct config_ip {
+	char string[ADDR_STR_LEN];
+	struct ip_address address;
+	struct config_ip *next;	/* link for linked list */
+};
+
+static inline void ips_insert(struct config_ip **ips,
+                              char *string)
+{
+	struct config_ip *new_ip;
+
+	// TODO(malsbat) lookup first and overwrite
+
+	new_ip = calloc(1, sizeof(struct config_ip));
+	strncpy(new_ip->string, string, ADDR_STR_LEN-1);
+	new_ip->next = *ips;
+	*ips = new_ip;
+}
+
 struct config {
 	const char **argv;			/* a copy of process argv */
 
@@ -99,12 +118,11 @@ struct config {
 	struct ip_address live_bind_ip;		/* address for bind() */
 	struct ip_address live_connect_ip;	/* address for connect() */
 
-	struct ip_address live_local_ip;	/* local interface IP */
+	struct config_ip *live_local_ips;       /* local interface IPs */
 	struct ip_address live_remote_ip;	/* remote interface IP */
 	struct ip_prefix live_remote_prefix;	/* remote prefix under test */
 	struct ip_address live_gateway_ip;	/* gateway interface IP */
 
-	char live_local_ip_string[ADDR_STR_LEN];	/* human-readable IP */
 	char live_remote_ip_string[ADDR_STR_LEN];	/* human-readable IP */
 	char live_remote_prefix_string[ADDR_STR_LEN];	/* <addr>/<prefixlen> */
 

@@ -113,9 +113,13 @@ static void check_remote_address(struct config *config,
  */
 static void check_local_anyip(struct config *config)
 {
-	if (is_ip_local(&config->live_local_ip)) {
-		die("error: live_local_ip %s is not remote for anyip\n",
-		    config->live_local_ip_string);
+	struct config_ip* ip = NULL;
+
+	for (ip = config->live_local_ips; ip != NULL; ip = ip->next) {
+		if (is_ip_local(&ip->address)) {
+			die("error: live_local_ip %s is not remote for anyip\n",
+			    ip->string);
+		}
 	}
 }
 
@@ -308,10 +312,14 @@ struct netdev *local_netdev_new(struct config *config)
 
 	if (config->is_anyip)
 		check_local_anyip(config);
-	else
-		net_setup_dev_address(netdev->name,
-				      &config->live_local_ip,
-				      config->live_prefix_len);
+	else {
+		struct config_ip* ip = NULL;
+		for (ip = config->live_local_ips; ip != NULL; ip = ip->next) {
+			net_setup_dev_address(netdev->name,
+					      &ip->address,
+					      config->live_prefix_len);
+		}
+	}
 
 	route_traffic_to_device(config, netdev);
 	netdev->psock = packet_socket_new(netdev->name);

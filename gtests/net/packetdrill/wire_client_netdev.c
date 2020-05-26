@@ -119,9 +119,11 @@ struct netdev *wire_client_netdev_new(struct config *config)
 	check_remote_address(config, netdev);
 
 	/* Add the client live local IP to our NIC, so we can send/receive */
-	net_setup_dev_address(netdev->name,
-			      &config->live_local_ip,
-			      config->live_prefix_len);
+	struct config_ip *ip = NULL;
+	for (ip = config->live_local_ips; ip != NULL; ip = ip->next)
+		net_setup_dev_address(netdev->name,
+				      &ip->address,
+				      config->live_prefix_len);
 
 	route_traffic_to_wire_server(config, netdev);
 
