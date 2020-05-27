@@ -2245,32 +2245,32 @@ int mptcp_subtype_mp_fail(struct packet *packet_to_modify,
  */
 int mptcp_subtype_mp_fastclose(struct packet *packet_to_modify,
 		struct packet *live_packet,
-		struct tcp_option *dss_opt_script,
+		struct tcp_option *fastclose_script,
 		unsigned direction)
 {
-	struct tcp_option* dss_opt_live = get_mptcp_option(live_packet, MP_FASTCLOSE_SUBTYPE);
-	if(!dss_opt_live)
+	struct tcp_option* fastclose_live = get_mptcp_option(live_packet, MP_FASTCLOSE_SUBTYPE);
+	if(!fastclose_live)
 		return STATUS_ERR;
 
-	if(dss_opt_script->data.mp_fastclose.receiver_key == UNDEFINED){ // <mp_fastclose>
+	if(fastclose_script->data.mp_fastclose.receiver_key == UNDEFINED){ // <mp_fastclose>
 		if(direction == DIRECTION_INBOUND)
-			dss_opt_script->data.mp_fastclose.receiver_key = htonll(mp_state.kernel_key);
+			fastclose_script->data.mp_fastclose.receiver_key = htonll(mp_state.kernel_key);
 		else if(direction == DIRECTION_OUTBOUND)
-			dss_opt_script->data.mp_fastclose.receiver_key = dss_opt_live->data.mp_fastclose.receiver_key;
+			fastclose_script->data.mp_fastclose.receiver_key = fastclose_live->data.mp_fastclose.receiver_key;
 		else
 			return STATUS_ERR;
-	}else if(dss_opt_script->data.mp_fastclose.receiver_key == SCRIPT_DEFINED ||
-			dss_opt_script->data.mp_fastclose.receiver_key == SCRIPT_ASSIGNED){ //<mp_fastclose b> et b=123
+	}else if(fastclose_script->data.mp_fastclose.receiver_key == SCRIPT_DEFINED ||
+			fastclose_script->data.mp_fastclose.receiver_key == SCRIPT_ASSIGNED){ //<mp_fastclose b> et b=123
 		u64 *key = find_next_key();
 		if(!key)
 			return STATUS_ERR;
-		dss_opt_script->data.mp_fastclose.receiver_key = htonll(*key);
-	}else if(dss_opt_script->data.mp_fastclose.receiver_key==MPTCP_KEY){ // <mp_fastclose b + 123>
+		fastclose_script->data.mp_fastclose.receiver_key = htonll(*key);
+	}else if(fastclose_script->data.mp_fastclose.receiver_key==MPTCP_KEY){ // <mp_fastclose b + 123>
 		u64 additional_val 	= find_next_value();
 		u64 *key = find_next_key();
 		if(!key || additional_val==STATUS_ERR)
 			return STATUS_ERR;
-		dss_opt_script->data.mp_fastclose.receiver_key = htonll(*key + additional_val);
+		fastclose_script->data.mp_fastclose.receiver_key = htonll(*key + additional_val);
 	}else
 		return STATUS_ERR;
 
