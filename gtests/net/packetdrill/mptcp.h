@@ -304,8 +304,8 @@ void free_vars();
  * @post
  * - Create a new subflow structure containing all available information at this
  * time (src_ip, dst_ip, src_port, dst_port, packetdrill_rand_nbr,
- * packetdrill_addr_id). kernel_addr_id and kernel_rand_nbr should be set when
- * receiving syn+ack with mp_join mptcp option from kernel.
+ * packetdrill_addr_id). kernel_addr_id and kernel_rand_nbr should be set by the
+ * caller when receiving syn+ack with mp_join mptcp option from kernel.
  *
  * - last_packetdrill_addr_id is incremented.
  */
