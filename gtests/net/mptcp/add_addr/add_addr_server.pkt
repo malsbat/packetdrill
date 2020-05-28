@@ -1,6 +1,6 @@
 // connection initiated by packetdrill
 --tolerance_usecs=100000
---local_ip=192.168.3.1 // local is /16
+--local_ip=192.168.3.1
 --local_ip=192.168.3.2
 `../common/defaults.sh`
 
