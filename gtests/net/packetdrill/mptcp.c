@@ -1046,9 +1046,9 @@ static int set_dsn8(struct dsn *dsn_live, struct dsn *dsn_script)
 	}else{
 		if (dsn_script->dsn8 > 0)
 			dsn_live->dsn8 =
-				htonl(sha_least_64bits(mp_state.packetdrill_key,
-						       mp_state.hash) +
-				      dsn_script->dsn8);
+				htonll(sha_least_64bits(mp_state.packetdrill_key,
+						        mp_state.hash) +
+				       dsn_script->dsn8);
 	}
         return STATUS_OK;
 }
