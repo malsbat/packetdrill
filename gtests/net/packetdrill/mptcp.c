@@ -1207,10 +1207,28 @@ int dss_inbound_parser(struct packet *packet_to_modify,
 		struct dack *dack_live	= (struct dack*)((u32*)dss_opt_live+1);
 		struct dack *dack_script= (struct dack*)((u32*)dss_opt_script+1);
 
-		if(!dss_opt_script->data.dss.flag_a)
+		//DACK4
+		if(!dss_opt_script->data.dss.flag_a){
+			u32* ssn_live           = (u32*)dack_live+1;
+
 			set_dack4(dack_live, dack_script);
-		else
+			set_ssn_dll_cs(ssn_live,
+			               0, // TODO(malsbat) what is dsn value when checksum?
+			               subflow->ssn,
+			               tcp_payload_length,
+			               dss_opt_script->length == TCPOLEN_DSS_DACK4);
+
+		//DACK8
+		}else{
+			u32* ssn_live           = (u32*)dack_live+2;
+
 			set_dack8(dack_live, dack_script);
+			set_ssn_dll_cs(ssn_live,
+			               0, // TODO(malsbat) what is dsn value when checksum?
+			               subflow->ssn,
+			               tcp_payload_length,
+			               dss_opt_script->length == TCPOLEN_DSS_DACK8);
+                }
 	}
 	subflow->ssn += tcp_payload_length;
 	return STATUS_OK;
