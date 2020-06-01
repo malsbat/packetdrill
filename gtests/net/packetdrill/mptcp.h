@@ -203,6 +203,8 @@ struct mp_state_s {
 
     unsigned last_packetdrill_addr_id;
 
+    u32 remote_token; 	// most 32 bits of Hash(kernel_key)
+    u32 token;			// most 32 bits of Hash(packetdrill_key)
     u64 remote_idsn; 	// least 64 bits of Hash(kernel_key)
     u64 idsn;			// least 64 bits of Hash(packetdrill_key)
     u32 remote_ssn;		// number of packets received from kernel
