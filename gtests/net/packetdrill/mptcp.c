@@ -693,24 +693,24 @@ static int mp_join_syn(struct packet *packet_to_modify,
 }
 
 void mp_join_syn_ack_sender_hmac(struct tcp_option *tcp_opt_to_modify,
-		u64 key1, u64 key2, u32 msg1, u32 msg2)
+		u64 key1, u64 key2, u32 rand1, u32 rand2)
 {
-	//Build key for HMAC-SHA1
+	//Build key for HMAC-SHA256
 	unsigned char hmac_key[16];
 	unsigned long *key_a = (unsigned long*)hmac_key;
 	unsigned long *key_b = (unsigned long*)&(hmac_key[8]);
 	*key_a = key1;
 	*key_b = key2;
 
-	//Build message for HMAC-SHA1
+	//Build message for HMAC-SHA256
 	u32 msg[2];
-	msg[0] = msg1;
-	msg[1] = msg2;
+	msg[0] = htonl(rand1);
+	msg[1] = htonl(rand2);
 	tcp_opt_to_modify->data.mp_join.syn.ack.sender_hmac =
-			htobe64(hmac_sha1_truncat_64(hmac_key,
+			hmac_sha256_truncat_64(hmac_key,
 					16,
 					(u8 *)msg,
-					8));
+					8);
 }
 
 static int mp_join_syn_ack(struct packet *packet_to_modify,
@@ -958,26 +958,24 @@ int mptcp_subtype_mp_join(struct packet *packet_to_modify,
 			tcp_opt_to_modify->length == TCPOLEN_MP_JOIN_ACK){
 
 		struct mp_subflow *subflow =
-				find_subflow_matching_outbound_packet(packet_to_modify);
+				find_subflow_matching_outbound_packet(live_packet);
 
 		if(!subflow)
 			return STATUS_ERR;
 
-		//Build key for HMAC-SHA1
-		u64 loc_key = mp_state.packetdrill_key;
-		u64 rem_key = mp_state.kernel_key;
-		u32 loc_nonce = subflow->packetdrill_rand_nbr;
-		u32 rem_nonce = subflow->kernel_rand_nbr;
+                //Build key for HMAC-SHA256
+                unsigned char hmac_key[16];
+                unsigned long *key_a = (unsigned long*)hmac_key;
+                unsigned long *key_b = (unsigned long*)&(hmac_key[8]);
+                *key_a = mp_state.kernel_key;
+                *key_b = mp_state.packetdrill_key;
 
-		// return value
-		u8 mptcp_hash_mac[20];
-		mptcp_hmac_sha1(
-				(u8*)&rem_key,
-				(u8*)&loc_key,
-				(u8*)&rem_nonce,
-				(u8*)&loc_nonce,
-				(u32*)mptcp_hash_mac );
-
+                //Build message for HMAC-SHA256
+                u32 msg[2];
+                msg[0] = htonl(subflow->kernel_rand_nbr);
+                msg[1] = htonl(subflow->packetdrill_rand_nbr);
+		u8 mptcp_hash_mac[32];
+                hmac_sha256(hmac_key, 16, (u8 *)msg, 8, mptcp_hash_mac);
 		memcpy(tcp_opt_to_modify->data.mp_join.no_syn.sender_hmac,
 				mptcp_hash_mac, 20);
 	}
