@@ -315,6 +315,65 @@ static struct socket *handle_connect_for_script_packet(
 	return socket;
 }
 
+/* See if the socket under test is an mptcp socket that would emit
+ * this outgoing script SYN. If so, return a pointer to the socket;
+ * otherwise, return NULL.
+ */
+static struct socket *handle_mp_join_for_script_packet(
+	struct state *state, const struct packet *packet,
+	enum direction_t direction)
+{
+	/* Does this packet match this socket? For now we only support
+	 * testing one socket at a time.
+	 */
+	struct config *config = state->config;
+	struct socket *socket = state->socket_under_test;	/* shortcut */
+
+	bool match = ((direction == DIRECTION_OUTBOUND) &&
+		      packet->tcp->syn && !packet->tcp->ack);
+	if (!match)
+		return NULL;
+
+	if (config->is_wire_server) {
+		match = false; // TODO(malsbat) mp_join SYN for wire server
+	} else {
+                /* We cannot match the receiver token value to the
+                 * mptcp connection here, the value of it will not be
+                 * computed until the script packet is mapped later.
+                 */
+                match = get_mptcp_option((struct packet *)packet, MP_JOIN_SUBTYPE) != NULL;
+                struct mp_subflow *subflow = find_subflow_matching_socket(socket);
+                if (!subflow)
+                        socket = NULL;
+	}
+	if (!match)
+		return NULL;
+
+	if (socket == NULL) {
+		/* Create a socket for this outbound SYN packet. Any
+		 * further packets in the test script are mapped here.
+		 */
+		socket = socket_new(state);
+		state->socket_under_test = socket;
+		assert(socket->state == SOCKET_INIT);
+		socket->address_family = packet_address_family(packet);
+		socket->protocol = IPPROTO_MPTCP;
+
+		socket->fd.script_fd	 = -1;
+		socket->fd.live_fd	 = -1;
+	}
+
+	/* Fill in the new info about this connection. */
+	struct tuple tuple;
+	get_packet_tuple(packet, &tuple);
+	socket->state			= SOCKET_ACTIVE_SYN_SENT;
+	socket->script.remote		= tuple.dst;
+	socket->script.local		= tuple.src;
+	socket->script.local_isn	= ntohl(packet->tcp->seq);
+
+	return socket;
+}
+
 /* Look for a connecting socket that would emit this outgoing live packet. */
 static struct socket *find_connect_for_live_packet(
 	struct state *state, struct packet *packet,
@@ -357,6 +416,53 @@ static struct socket *find_connect_for_live_packet(
 	/* Using the details in this outgoing packet, fill in the
 	 * new details we've learned about this actively initiated
 	 * connection (for which we've seen a connect() call).
+	 */
+	socket->live.local.ip	= tuple.src.ip;
+	socket->live.local.port	= tuple.src.port;
+
+	if (packet->tcp)
+		socket->live.local_isn	= ntohl(packet->tcp->seq);
+
+	return socket;
+}
+
+/* Look for an existing, known mptcp endpoint that would receive this outgoing live packet. */
+static struct socket *find_mp_join_for_live_packet(
+	struct state *state, struct packet *packet,
+	enum direction_t *direction)
+{
+	struct tuple tuple;
+	get_packet_tuple(packet, &tuple);
+
+	*direction = DIRECTION_INVALID;
+	struct socket *socket = state->socket_under_test;	/* shortcut */
+	if (!socket)
+		return NULL;
+
+	bool is_mptcp_match =
+		(packet->tcp && packet->tcp->syn && !packet->tcp->ack &&
+                 (socket->protocol == IPPROTO_MPTCP) &&
+		 (socket->state == SOCKET_ACTIVE_SYN_SENT));
+	if (!is_mptcp_match)
+		return NULL;
+
+        struct mp_endpoint *endpoint = find_mp_endpoint_matching_outbound_packet(packet);
+        if ((!is_equal_ip(&tuple.dst.ip, &socket->live.remote.ip) ||
+             !is_equal_port(tuple.dst.port, socket->live.remote.port))
+            && endpoint) {
+		/* Fill in the new endpoint details we've learned
+                 * about this actively initiated join.
+                 */
+		socket->live.remote.ip   = endpoint->ip;
+		socket->live.remote.port = htons(endpoint->port);
+        } else {
+            return NULL;
+        }
+
+	*direction = DIRECTION_OUTBOUND;
+	/* Using the details in this outgoing packet, fill in the
+	 * new details we've learned about this actively initiated
+	 * join.
 	 */
 	socket->live.local.ip	= tuple.src.ip;
 	socket->live.local.port	= tuple.src.port;
@@ -1742,6 +1848,11 @@ static int sniff_outbound_live_packet(
 						      &direction);
 		if ((socket != NULL) && (direction == DIRECTION_OUTBOUND))
 			break;
+		/* See if the packet matches an existing, known mptcp endpoint. */
+		socket = find_mp_join_for_live_packet(state, *packet,
+						      &direction);
+		if ((socket != NULL) && (direction == DIRECTION_OUTBOUND))
+			break;
 		packet_free(*packet);
 		*packet = NULL;
 	}
@@ -1799,6 +1910,12 @@ static int find_or_create_socket_for_script_packet(
 
 		/* Is this an outbound packet matching a connecting socket? */
 		*socket = handle_connect_for_script_packet(state,
+							   packet, direction);
+		if (*socket != NULL)
+			return STATUS_OK;
+
+		/* Is this an outbound packet matching an mptcp socket? */
+		*socket = handle_mp_join_for_script_packet(state,
 							   packet, direction);
 		if (*socket != NULL)
 			return STATUS_OK;
