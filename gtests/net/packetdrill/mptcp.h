@@ -176,6 +176,13 @@ struct mp_subflow {
 	struct mp_subflow *next;
 };
 
+struct mp_endpoint {
+	struct ip_address ip;
+	u16 port;
+	u8 id;
+	struct mp_endpoint *next;
+};
+
 /**
  * Global state for multipath TCP
  */
@@ -201,6 +208,7 @@ struct mp_state_s {
     //hashmap, contains <key:variable_name, value: variable_value>
     struct mp_var *vars;
     struct mp_subflow *subflows;
+    struct mp_endpoint *endpoints;
 
     unsigned last_packetdrill_addr_id;
 
@@ -330,6 +338,11 @@ struct mp_subflow *find_subflow_matching_inbound_packet(
 void free_flows();
 
 /**
+ * Free all mptcp endpoint struct being a member of mp_state.endpoints list.
+ */
+void free_endpoints();
+
+/**
  * Generate a mptcp packetdrill side key and save it for later reference in
  * the script.
  */
@@ -383,5 +396,8 @@ int mptcp_subtype_dss(struct packet *packet_to_modify,
 int mptcp_insert_and_extract_opt_fields(struct packet *packet_to_modify,
 		struct packet *live_packet, // could be the same as packet_to_modify
 		unsigned direction);
+
+struct mp_endpoint *find_mp_endpoint_matching_outbound_packet(
+		struct packet *outbound_packet);
 
 #endif /* __MPTCP_H__ */

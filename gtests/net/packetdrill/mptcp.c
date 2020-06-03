@@ -27,6 +27,7 @@ void free_mp_state(){
 	free_val_queue();
 	free_vars();
 	free_flows();
+	free_endpoints();
 }
 
 /**
@@ -269,6 +270,40 @@ struct mp_subflow *new_subflow_outbound(struct packet *outbound_packet)
 	return subflow;
 }
 
+static struct mp_endpoint *new_endpoint(struct packet* packet)
+{
+	struct tcp_option* add_addr_opt = get_mptcp_option(packet, ADD_ADDR_SUBTYPE);
+	struct mp_endpoint *endpoint = calloc(1, sizeof(struct mp_endpoint));
+
+        if(add_addr_opt->length == TCPOLEN_ADD_ADDR_V4 ||
+           add_addr_opt->length == TCPOLEN_ADD_ADDR_V4_HMAC){
+		ip_from_ipv4(&add_addr_opt->data.add_addr.ipv4, &endpoint->ip);
+		endpoint->port = ntohs(packet->tcp->src_port);
+
+        }else if(add_addr_opt->length == TCPOLEN_ADD_ADDR_V4_PORT ||
+                 add_addr_opt->length == TCPOLEN_ADD_ADDR_V4_PORT_HMAC){
+		ip_from_ipv4(&add_addr_opt->data.add_addr.ipv4_w_port.ipv4, &endpoint->ip);
+		endpoint->port = ntohs(add_addr_opt->data.add_addr.ipv4_w_port.port);
+
+        }else if(add_addr_opt->length == TCPOLEN_ADD_ADDR_V6 ||
+                 add_addr_opt->length == TCPOLEN_ADD_ADDR_V6_HMAC){
+		ip_from_ipv6(&add_addr_opt->data.add_addr.ipv6, &endpoint->ip);
+		endpoint->port = ntohs(packet->tcp->src_port);
+
+        }else if(add_addr_opt->length == TCPOLEN_ADD_ADDR_V6_PORT ||
+                 add_addr_opt->length == TCPOLEN_ADD_ADDR_V6_PORT_HMAC){
+		ip_from_ipv6(&add_addr_opt->data.add_addr.ipv6_w_port.ipv6, &endpoint->ip);
+		endpoint->port = ntohs(add_addr_opt->data.add_addr.ipv6_w_port.port);
+
+        }else{
+                return NULL;
+        }
+        endpoint->id = add_addr_opt->data.add_addr.address_id;
+	endpoint->next = mp_state.endpoints;
+	mp_state.endpoints = endpoint;
+	return endpoint;
+}
+
 /**
  * Return the first subflow S of mp_state.subflows for which match(packet, S)
  * returns true.
@@ -332,6 +367,16 @@ void free_flows(){
 		temp = subflow->next;
 		free(subflow);
 		subflow = temp;
+	}
+}
+
+void free_endpoints(){
+	struct mp_endpoint *endpoint = mp_state.endpoints;
+	struct mp_endpoint *temp;
+	while(endpoint){
+		temp = endpoint->next;
+		free(endpoint);
+		endpoint = temp;
 	}
 }
 
@@ -1882,6 +1927,7 @@ int mptcp_subtype_add_address(struct packet *packet_to_modify,
                                                            0);
 		}else
 			return STATUS_ERR;
+		new_endpoint(live_packet);
 	}else if(direction == DIRECTION_OUTBOUND){
 		if((s8)add_addr_script->data.add_addr.address_id == UNDEFINED)
 			add_addr_script->data.add_addr.address_id = add_addr_live->data.add_addr.address_id;
@@ -2148,4 +2194,35 @@ int mptcp_insert_and_extract_opt_fields(struct packet *packet_to_modify,
 	}
 
 	return error;
+}
+
+static struct mp_endpoint *find_matching_endpoint(struct packet *packet,
+		bool (*match)(struct mp_endpoint*, struct packet*))
+{
+	struct mp_endpoint *endpoint = mp_state.endpoints;
+	while(endpoint){
+		if((*match)(endpoint, packet)){
+			return endpoint;
+		}
+		endpoint = endpoint->next;
+	}
+	return NULL;
+}
+
+static bool does_endpoint_match_outbound_packet(struct mp_endpoint *endpoint,
+		struct packet *outbound_packet){
+	struct ip_address dst_ip;
+	if(outbound_packet->ipv4){
+		ip_from_ipv4(&outbound_packet->ipv4->dst_ip, &dst_ip);
+	} else if(outbound_packet->ipv6){
+		ip_from_ipv6(&outbound_packet->ipv6->dst_ip, &dst_ip);
+	}
+	return is_equal_ip(&endpoint->ip, &dst_ip) &&
+		(endpoint->port == ntohs(outbound_packet->tcp->dst_port));
+}
+
+struct mp_endpoint *find_mp_endpoint_matching_outbound_packet(
+		struct packet *outbound_packet)
+{
+	return find_matching_endpoint(outbound_packet, does_endpoint_match_outbound_packet);
 }
