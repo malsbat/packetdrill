@@ -213,7 +213,7 @@ u64 find_next_value(){
 struct mp_subflow *new_subflow_inbound(struct packet *inbound_packet)
 {
 
-	struct mp_subflow *subflow = malloc(sizeof(struct mp_subflow));
+	struct mp_subflow *subflow = calloc(1, sizeof(struct mp_subflow));
 
 	if(inbound_packet->ipv4){
 		ip_from_ipv4(&inbound_packet->ipv4->src_ip, &subflow->src_ip);
@@ -246,7 +246,7 @@ struct mp_subflow *new_subflow_inbound(struct packet *inbound_packet)
 
 struct mp_subflow *new_subflow_outbound(struct packet *outbound_packet)
 {
-	struct mp_subflow *subflow = malloc(sizeof(struct mp_subflow));
+	struct mp_subflow *subflow = calloc(1, sizeof(struct mp_subflow));
 
 	if(outbound_packet->ipv4){
 		ip_from_ipv4(&outbound_packet->ipv4->dst_ip, &subflow->src_ip);
