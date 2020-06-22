@@ -507,7 +507,7 @@ struct tcp_option *mp_join_do_syn(bool is_backup,
 
 	struct mp_join_info *mp_join_script_info = malloc(sizeof(struct mp_join_info));
 
-	/* Save user defined values in mp_state.vars_queue */
+	/* Save user defined values in out_script->vars_queue */
 
 	//address_id
 	mp_join_script_info->syn_or_syn_ack.address_id_script_defined = (address_id != -1);
@@ -542,7 +542,7 @@ struct tcp_option *mp_join_do_syn(bool is_backup,
 	if(mp_join_script_info->syn_or_syn_ack.rand_script_defined)
 		mp_join_script_info->syn_or_syn_ack.rand = rand;
 
-	if(queue_enqueue(&mp_state.vars_queue, mp_join_script_info)==STATUS_ERR)
+	if(queue_enqueue(&out_script->vars_queue, mp_join_script_info)==STATUS_ERR)
 		semantic_error("Too many variables are used in script");
 	return opt;
 }
@@ -569,7 +569,7 @@ struct tcp_option *mp_join_do_syn_ack(bool is_backup,
 
 	struct mp_join_info *mp_join_script_info = malloc(sizeof(struct mp_join_info));
 
-	/* Save user defined values in mp_state.vars_queue */
+	/* Save user defined values in out_script->vars_queue */
 
 	//address_id
 	mp_join_script_info->syn_or_syn_ack.address_id_script_defined = (address_id != -1);
@@ -603,7 +603,7 @@ struct tcp_option *mp_join_do_syn_ack(bool is_backup,
 	if(mp_join_script_info->syn_or_syn_ack.rand_script_defined)
 		mp_join_script_info->syn_or_syn_ack.rand = rand;
 
-	if(queue_enqueue(&mp_state.vars_queue, mp_join_script_info)==STATUS_ERR)
+	if(queue_enqueue(&out_script->vars_queue, mp_join_script_info)==STATUS_ERR)
 		semantic_error("Too many variables are used in script");
 	return opt;
 }
@@ -632,7 +632,7 @@ struct tcp_option *mp_join_do_ack(char *str, char *str2, bool automatic){
 	}else
 		mp_join_script_info->ack.is_var = true;
 
-	if(queue_enqueue(&mp_state.vars_queue, mp_join_script_info)==STATUS_ERR)
+	if(queue_enqueue(&out_script->vars_queue, mp_join_script_info)==STATUS_ERR)
 		semantic_error("Too many variables are used in script");
 
 	return opt;
@@ -1445,7 +1445,7 @@ endpoint_var
 	memset(&$$, 0, sizeof($$));
 	$$.name		= $3;
 	$$.exist	= true;
-	if (enqueue_var($3))
+	if (enqueue_var(out_script, $3))
 		semantic_error("MPTCP variables queue is full!\n");
 }
 ;
@@ -1649,9 +1649,9 @@ dsn
 | DSN4 '=' TRUNC_R64_HMAC '('  WORD ')' add_to_var {
 	$$.type = 4;
 	$$.val = SCRIPT_DEFINED_TO_HASH_LSB; // to be added using the variable name
-	if(queue_enqueue(&mp_state.vars_queue, $5)==STATUS_ERR)
+	if(queue_enqueue(&out_script->vars_queue, $5)==STATUS_ERR)
 		semantic_error("Too many variables are used in script");
-	if(queue_enqueue_val(&mp_state.vals_queue, $7.additional_val ))
+	if(queue_enqueue_val(&out_script->vals_queue, $7.additional_val ))
 		semantic_error("Too many values are enqueued in script");
 }
 | DSN8 '=' INTEGER 	{	$$.type = 8;	$$.val = $3;}
@@ -1667,9 +1667,9 @@ dsn
 | DSN8 '=' TRUNC_R64_HMAC '('  WORD ')' add_to_var	{
 	$$.type = 8;
 	$$.val = SCRIPT_DEFINED_TO_HASH_LSB; // to be added using the variable name
-	if(queue_enqueue(&mp_state.vars_queue, $5)==STATUS_ERR)
+	if(queue_enqueue(&out_script->vars_queue, $5)==STATUS_ERR)
 		semantic_error("Too many variables are used in script");
-	if(queue_enqueue_val(&mp_state.vals_queue, $7.additional_val ))
+	if(queue_enqueue_val(&out_script->vals_queue, $7.additional_val ))
 		semantic_error("Too many values are enqueued in script");
 }
 ;
@@ -1711,9 +1711,9 @@ dack
 | DACK4 '=' TRUNC_R64_HMAC '('  WORD ')' add_to_var	{
 	$$.type = 4;
 	$$.dack = SCRIPT_DEFINED_TO_HASH_LSB; // to be added using the variable name
-	if(queue_enqueue(&mp_state.vars_queue, $5)==STATUS_ERR)
+	if(queue_enqueue(&out_script->vars_queue, $5)==STATUS_ERR)
 		semantic_error("Too many variables are used in script");
-	if(queue_enqueue_val(&mp_state.vals_queue, $7.additional_val ))
+	if(queue_enqueue_val(&out_script->vals_queue, $7.additional_val ))
 		semantic_error("Too many values are enqueued in script");
 }
 | DACK8 '=' INTEGER {	$$.type = 8;	$$.dack = $3;}
@@ -1730,9 +1730,9 @@ dack
 
 	$$.type = 8;
 	$$.dack = SCRIPT_DEFINED_TO_HASH_LSB; // to be added using the variable name
-	if(queue_enqueue(&mp_state.vars_queue, $5)==STATUS_ERR)
+	if(queue_enqueue(&out_script->vars_queue, $5)==STATUS_ERR)
 		semantic_error("Too many variables are used in script");
-	if(queue_enqueue_val(&mp_state.vals_queue, $7.additional_val ))
+	if(queue_enqueue_val(&out_script->vals_queue, $7.additional_val ))
 		semantic_error("Too many values are enqueued in script");
 }
 ;
@@ -1821,13 +1821,13 @@ list_id
 : INTEGER {
 	if(!is_valid_u8($1))
 		semantic_error("REMOVE_ADDRESS: address_id should be a 8 bits unsigned integer.");
-	if(queue_enqueue_val(&mp_state.script_only_vals_queue, $1 ))
+	if(queue_enqueue_val(&out_script->script_only_vals_queue, $1 ))
 		semantic_error("Too many values are enqueued in script");
 }
 | INTEGER ',' list_id {
 	if(!is_valid_u8($1))
 		semantic_error("REMOVE_ADDRESS: address_id should be a 8 bits unsigned integer.");
-	if(queue_enqueue_val(&mp_state.script_only_vals_queue, $1 ))
+	if(queue_enqueue_val(&out_script->script_only_vals_queue, $1 ))
 		semantic_error("Too many values are enqueued in script");
 }
 ;
@@ -1839,9 +1839,9 @@ add_addr_ip
 	struct ip_address ip_formatted = ipv4_parse($7);
 	endpoint.ip.ip.v4 = ip_formatted.ip.v4;
 	endpoint.ip.address_family = AF_INET;
-	if (enqueue_var($3))
+	if (enqueue_var(out_script, $3))
 		semantic_error("MPTCP variables queue is full!\n");
-	add_mp_var_addr($3, &endpoint);
+	add_var_addr(out_script, $3, &endpoint);
 	$$ = AF_INET;
 }
 | ADDR '[' WORD '=' INET6_ADDR '(' STRING ')' ']' {
@@ -1850,13 +1850,13 @@ add_addr_ip
 	struct ip_address ip_formatted = ipv6_parse($5);
 	endpoint.ip.ip.v6 = ip_formatted.ip.v6;
 	endpoint.ip.address_family = AF_INET6;
-	if (enqueue_var($3))
+	if (enqueue_var(out_script, $3))
 		semantic_error("MPTCP variables queue is full!\n");
-	add_mp_var_addr($3, &endpoint);
+	add_var_addr(out_script, $3, &endpoint);
 	$$ = AF_INET6;
 }
 | ADDR '[' WORD ']' {
-	if (enqueue_var($3))
+	if (enqueue_var(out_script, $3))
 		semantic_error("MPTCP variables queue is full!\n");
 	$$ = AF_UNSPEC;
 }
@@ -1995,21 +1995,21 @@ mpc_keys
 }
 | KEY '[' mptcp_var ']' {
 	$$ = 1;
-	if (enqueue_var($3.name))
+	if (enqueue_var(out_script, $3.name))
 		semantic_error("MPTCP variables queue is full!\n");
 	if ($3.script_assigned)
-		add_mp_var_script_defined($3.name, &$3.value, 8);
+		add_var_script_defined(out_script, $3.name, &$3.value, 8);
 }
 | KEY '[' mptcp_var ',' mptcp_var ']' {
 	$$ = 2;
-	if (enqueue_var($3.name))
+	if (enqueue_var(out_script, $3.name))
 		semantic_error("MPTCP variables queue is full!\n");
 	if ($3.script_assigned)
-		add_mp_var_script_defined($3.name, &$3.value, 8);
-	if (enqueue_var($5.name))
+		add_var_script_defined(out_script, $3.name, &$3.value, 8);
+	if (enqueue_var(out_script, $5.name))
 		semantic_error("MPTCP variables queue is full!\n");
 	if ($5.script_assigned)
-		add_mp_var_script_defined($5.name, &$5.value, 8);
+		add_var_script_defined(out_script, $5.name, &$5.value, 8);
 }
 ;
 
@@ -2096,27 +2096,27 @@ tcp_option
 
 	unsigned mp_capable_length = TCPOLEN_MP_CAPABLE_SYN;
 
-	if(enqueue_var($2.name))
+	if(enqueue_var(out_script, $2.name))
 		semantic_error("MPTCP variables queue is full, increase queue size.");
 
 	if($2.script_assigned){
 		// TODO refactor for testing u64 values for i386 machines
 		//if(!is_valid_u64($2.value))
 		//	semantic_error("Value assigned to first mptcp variable is not a valid u64.");
-		add_mp_var_script_defined($2.name, &$2.value, 8);
+		add_var_script_defined(out_script, $2.name, &$2.value, 8);
 	}
 
 	if($3.exist){
 		mp_capable_length = TCPOLEN_MP_CAPABLE;
 
-		if(enqueue_var($3.name))
+		if(enqueue_var(out_script, $3.name))
 			semantic_error("MPTCP variables queue is full, increase queue size.");
 
 		if($3.script_assigned){
 		// TODO refactor for testing u64 values for i386 machines
 		//	if(!is_valid_u64($3.value))
 		//		semantic_error("Value assigned to second mptcp variable is not a valid u64.");
-			add_mp_var_script_defined($3.name, &$3.value, 8);
+			add_var_script_defined(out_script, $3.name, &$3.value, 8);
 		}
 	}
 
@@ -2246,24 +2246,24 @@ tcp_option
 }
 | REMOVE_ADDRESS addresses_id{
 
-	if(queue_size_val(&mp_state.script_only_vals_queue) == 0)
+	if(queue_size_val(&out_script->script_only_vals_queue) == 0)
 		semantic_error("REMOVE_ADDRESS: at least one address_id has to be mentionned");
 
-	u8 nb_ids = queue_size_val(&mp_state.script_only_vals_queue);
+	u8 nb_ids = queue_size_val(&out_script->script_only_vals_queue);
 	$$ = tcp_option_new(TCPOPT_MPTCP, TCPOLEN_REMOVE_ADDR + nb_ids);
 	$$->data.remove_addr.resvd = ZERO_RESERVED;
 	u64 val;
 	int i = 0;
 	u8 *cur_id = &$$->data.remove_addr.address_id;
 	for (i=0; i< nb_ids; i++){
-		if(queue_dequeue_val(&mp_state.script_only_vals_queue, &val))
+		if(queue_dequeue_val(&out_script->script_only_vals_queue, &val))
 			semantic_error("REMOVE_ADDRESS: problem dequeuing values from script_only_vals_queue");
 		*(cur_id + i) = (u8)val;
 	}
 	$$->data.mp_capable.subtype = REMOVE_ADDR_SUBTYPE;
 
 	// free all used memory for this values
-	queue_free_val(&mp_state.script_only_vals_queue);
+	queue_free_val(&out_script->script_only_vals_queue);
 }
 | MP_PRIO is_backup address_id {
 	if($3 == UNDEFINED)
@@ -2292,19 +2292,19 @@ tcp_option
 	$$ = tcp_option_new(TCPOPT_MPTCP, TCPOLEN_MP_FASTCLOSE);
 
 	if($2.exist){ //if there exists a variable
-		if(enqueue_var($2.name))
+		if(enqueue_var(out_script, $2.name))
 			semantic_error("MPTCP variables queue is full, increase queue size.");
 
 		if($2.script_assigned){
-			add_mp_var_script_defined($2.name, &$2.value, 8);
+			add_var_script_defined(out_script, $2.name, &$2.value, 8);
 			$$->data.mp_fastclose.receiver_key = SCRIPT_ASSIGNED; // <mp_fastclose b=123>
 		}else{
 			if($3.additional_val>0){
-				if(queue_enqueue_val(&mp_state.vals_queue, $3.additional_val ))
+				if(queue_enqueue_val(&out_script->vals_queue, $3.additional_val ))
 					semantic_error("Too many values are enqueued in script");
 				$$->data.mp_fastclose.receiver_key = MPTCP_KEY; // <mp_fastclose b + 123>
 			}else{
-				if(queue_enqueue(&mp_state.vars_queue, $2.name)==STATUS_ERR)
+				if(queue_enqueue(&out_script->vars_queue, $2.name)==STATUS_ERR)
 					semantic_error("Too many variables are used in script");
 				$$->data.mp_fastclose.receiver_key = SCRIPT_DEFINED; //<mp_fastclose b>
 			}

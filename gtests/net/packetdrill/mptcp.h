@@ -12,8 +12,6 @@
 #include <string.h>
 #include <netinet/in.h>
 #include "types.h"
-#include "queue/queue.h"
-#include "hashmap/uthash.h"
 #include "mptcp_utils.h"
 #include "packet.h"
 #include "socket.h"
@@ -143,22 +141,6 @@ struct mp_join_info {
 	};
 };
 
-
-
-//A script mptcp variable bring additional information from user script to
-//mptcp.c.
-struct mp_var {
-	char *name;
-	void *value;
-	u8 mptcp_subtype;
-	union {
-		struct {
-			bool script_defined;
-		} mp_capable_info;
-	};
-	UT_hash_handle hh;
-};
-
 /**
  * Keep all info specific to a mptcp subflow
  */
@@ -195,20 +177,7 @@ struct mp_state_s {
     bool kernel_key_set;
     enum hash_algo hash;
 
-    /*
-     * FIFO queue to track variables use. Once parser encounter a mptcp
-     * variable, it will enqueue it in the var_queue. Since packets are
-     * processed in the same order than their apparition in the script
-     * we will dequeue the queue in run_packet.c functions to retrieve
-     * needed variables, and then retrieve the corresponding values using
-     * the hashmap.
-     *
-     */
-    queue_t 	vars_queue;
-    queue_t_val vals_queue; // this is used to pass values from scipt to packetdrill
-    queue_t_val script_only_vals_queue; // used to queu and dequeue in script file
-    //hashmap, contains <key:variable_name, value: variable_value>
-    struct mp_var *vars;
+    struct script *script;
     struct mp_subflow *subflows;
 
     struct mp_address *packetdrill_addrs;
@@ -226,7 +195,7 @@ typedef struct mp_state_s mp_state_t;
 
 mp_state_t mp_state;
 
-void init_mp_state(); //TODO init the initiail_dsn to -1
+void init_mp_state(struct script *script); //TODO init the initiail_dsn to -1
 
 void free_mp_state();
 
@@ -242,64 +211,7 @@ void set_packetdrill_key(u64 packetdrill_key);
  */
 void set_kernel_key(u64 kernel_key);
 
-
-/* mp_var_queue functions */
-
-/**
- * Insert a COPY of name char* in mp_state.vars_queue.
- * Error is returned if queue is full.
- *
- */
-int enqueue_var(char *name);
-//caller should free "name"
-int dequeue_var(char **name);
-//Free all variables names (char*) in vars_queue
-void free_var_queue();
-//Free all values added in vals_queue
-void free_val_queue();
-
 /* hashmap functions */
-
-/**
- *
- * Save a variable <name, value> in variables hashmap.
- * Where value is of u64 type key.
- *
- * Key memory location should stay valid, name is copied.
- *
- */
-void add_mp_var_key(char *name, u64 *key);
-
-/**
- *
- * Save a variable <name, value> in variables hashmap.
- * Where value is of struct endpoint.
- *
- * Value is copied in a newly allocated pointer and will be freed when
- * free_vars function will be executed.
- *
- */
-void add_mp_var_addr(char *name, struct endpoint *endpoint);
-
-/**
- * Save a variable <name, value> in variables hashmap.
- * Value is copied in a newly allocated pointer and will be freed when
- * free_vars function will be executed.
- *
- */
-void add_mp_var_script_defined(char *name, void *value, u32 length);
-
-/**
- * Add var to the variable hashmap.
- */
-void add_mp_var(struct mp_var *var);
-
-/**
- * Search in the hashmap for the value of the variable of name "name" and
- * return both variable - value (mp_var struct).
- * NULL is returned if not found
- */
-struct mp_var *find_mp_var(char *name);
 
 /**
  * Gives next mptcp key value needed to insert variable values while processing
@@ -311,12 +223,6 @@ u64 *find_next_key();
  * Returns the next value entered in script (enqueud)
  */
 u64 find_next_value();
-
-/**
- * Iterate through hashmap, free mp_var structs and mp_var->name,
- * value is not freed since values come from stack.
- */
-void free_vars();
 
 /* subflows management */
 

@@ -29,6 +29,8 @@
 
 #include <sys/time.h>
 #include "packet.h"
+#include "queue/queue.h"
+#include "hashmap/uthash.h"
 
 #define MSGHDR_MAX_CONTROLLEN 2000	/* arbitrary maximum cmsg length */
 
@@ -243,6 +245,27 @@ struct option_list {
 	struct option_list *next;
 };
 
+/* The type of a particular variable. */
+enum var_t {
+       VAR_MP_CAPABLE_INFO,
+       VAR_ADDR,
+};
+
+/* A script mptcp variable brings additional information from user
+ * script to run.
+ */
+struct var {
+	char *name;
+	void *value;
+	enum var_t type;
+	union {
+		struct {
+			bool script_defined;
+		} mp_capable_info;
+	};
+	UT_hash_handle hh;
+};
+
 /* A parsed script. The script owns all of the data to which
  * it points. TODO: add a script_free() to free everything when we are
  * done executing the script, instead of leaking all that memory.
@@ -254,6 +277,20 @@ struct script {
 	struct command_spec *cleanup_command;  /* untimed cleanup command */
 	char		*buffer;	    /* raw input text of the script */
 	int		length;		    /* number of bytes in the script */
+
+	/*
+	 * FIFO queue to track variables use. Once the parser encounters a
+	 * variable, it will enqueue it in the var_queue. Since packets are
+	 * processed in the same order than their apparition in the script
+	 * we will dequeue the queue in run_packet.c functions to retrieve
+	 * needed variables, and then retrieve the corresponding values using
+	 * the hashmap.
+	 */
+	queue_t vars_queue;
+	queue_t_val vals_queue; /* this is used to pass values from scipt to packetdrill */
+	queue_t_val script_only_vals_queue; /* used to queue and dequeue in script file */
+	/* hashmap, contains <key:variable_name, value: variable_value> */
+	struct var *vars;
 };
 
 /* Global pointer for final command we always execute at end of script: */
@@ -304,5 +341,44 @@ extern void free_expression_list(struct expression_list *list);
 extern int evaluate_expression_list(struct expression_list *in_list,
 				    struct expression_list **out_list,
 				    char **error);
+
+/* Insert a COPY of name char* in vars_queue.  Error is returned if
+ * queue is full.
+ */
+extern int enqueue_var(struct script *script, char *name);
+
+/* Caller should free. */
+extern int dequeue_var(struct script *script, char **name);
+
+extern void free_vars(struct script *script);
+
+/* Search in the hashmap for the value of the variable of name "name"
+ * and return both variable - value (var struct).  NULL is returned if
+ * not found.
+ */
+extern struct var *find_var(struct script *script, char *name);
+
+/* Returns the next value entered in script (enqueud). */
+extern u64 find_next_value(struct script *script);
+
+struct endpoint;
+
+/* Save a variable <name, value> in variables hashmap, where value is
+ * of struct endpoint. Value is copied in a newly allocated pointer
+ * and will be freed when free_vars function will be executed.
+ */
+extern void add_var_addr(struct script *script, char *name, struct endpoint *endpoint);
+
+/* Save a variable <name, value> in variables hashmap, where value is
+ * of u64 type key. Key memory location should stay valid, name is
+ * copied.
+ */
+extern void add_var_key(struct script *script, char *name, u64 *key);
+
+/* Save a variable <name, value> in variables hashmap. Value is copied
+ * in a newly allocated pointer and will be freed when free_vars
+ * function will be executed.
+ */
+extern void add_var_script_defined(struct script *script, char *name, void *value, u32 length);
 
 #endif /* __SCRIPT_H__ */

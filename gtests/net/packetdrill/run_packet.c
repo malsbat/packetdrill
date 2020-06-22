@@ -2207,17 +2207,18 @@ out:
  * Caller should free src_var_name and dst_var_name when returned
  * value is not NULL.
  */
-static int set_packet_tuple_from_vars(struct packet *packet, char **src_var_name, char **dst_var_name)
+static int set_packet_tuple_from_vars(struct state *state, struct packet *packet,
+				      char **src_var_name, char **dst_var_name)
 {
 	*src_var_name = NULL;
 	*dst_var_name = NULL;
 	struct tuple tuple;
 	get_packet_tuple(packet, &tuple);
 	if (packet->flags & FLAG_IP_SRC_VAR) {
-		if (dequeue_var(src_var_name))
+		if (dequeue_var(state->script, src_var_name))
 			return STATUS_ERR;
-		struct mp_var *var = find_mp_var(*src_var_name);
-		if (var && var->mptcp_subtype == ADD_ADDR_SUBTYPE) {
+		struct var *var = find_var(state->script, *src_var_name);
+		if (var && var->type == VAR_ADDR) {
 			tuple.src = *(struct endpoint*)var->value;
 			free(*src_var_name);
 			*src_var_name = NULL;
@@ -2225,10 +2226,10 @@ static int set_packet_tuple_from_vars(struct packet *packet, char **src_var_name
 		}
 	}
 	if (packet->flags & FLAG_IP_DST_VAR) {
-		if (dequeue_var(dst_var_name))
+		if (dequeue_var(state->script, dst_var_name))
 			return STATUS_ERR;
-		struct mp_var *var = find_mp_var(*dst_var_name);
-		if (var && var->mptcp_subtype == ADD_ADDR_SUBTYPE) {
+		struct var *var = find_var(state->script, *dst_var_name);
+		if (var && var->type == VAR_ADDR) {
 			tuple.dst = *(struct endpoint*)var->value;
 			free(*dst_var_name);
 			*dst_var_name = NULL;
@@ -2239,23 +2240,23 @@ static int set_packet_tuple_from_vars(struct packet *packet, char **src_var_name
 	return STATUS_OK;
 }
 
-static void set_tuple_vars_from_socket(char *src_var_name, char *dst_var_name,
+static void set_tuple_vars_from_socket(struct state *state, char *src_var_name, char *dst_var_name,
 				       struct socket *socket, enum direction_t direction)
 {
 	if (src_var_name) {
-		assert(!find_mp_var(src_var_name));
+		assert(!find_var(state->script, src_var_name));
 		if (direction == DIRECTION_OUTBOUND)
-			add_mp_var_addr(src_var_name, &socket->live.local);
+			add_var_addr(state->script, src_var_name, &socket->live.local);
 		else
-			add_mp_var_addr(src_var_name, &socket->live.remote);
+			add_var_addr(state->script, src_var_name, &socket->live.remote);
 		free(src_var_name);
 	}
 	if (dst_var_name) {
-		assert(!find_mp_var(dst_var_name));
+		assert(!find_var(state->script, dst_var_name));
 		if (direction == DIRECTION_OUTBOUND)
-			add_mp_var_addr(dst_var_name, &socket->live.remote);
+			add_var_addr(state->script, dst_var_name, &socket->live.remote);
 		else
-			add_mp_var_addr(dst_var_name, &socket->live.local);
+			add_var_addr(state->script, dst_var_name, &socket->live.local);
 		free(dst_var_name);
 	}
 }
@@ -2275,7 +2276,7 @@ int run_packet_event(
 
 	char *src_var_name;
 	char *dst_var_name;
-	if (set_packet_tuple_from_vars(packet, &src_var_name, &dst_var_name))
+	if (set_packet_tuple_from_vars(state, packet, &src_var_name, &dst_var_name))
 		goto out;
 
 	if (find_or_create_socket_for_script_packet(
@@ -2302,7 +2303,7 @@ int run_packet_event(
 		assert(!"bad direction");  /* internal bug */
 	}
 
-	set_tuple_vars_from_socket(src_var_name, dst_var_name, socket, direction);
+	set_tuple_vars_from_socket(state, src_var_name, dst_var_name, socket, direction);
 
 	return STATUS_OK;	 /* everything went fine */
 

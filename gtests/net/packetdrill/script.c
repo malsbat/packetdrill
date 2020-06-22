@@ -30,6 +30,7 @@
 #include "assert.h"
 #include "symbols.h"
 #include "gre.h"
+#include "socket.h"
 
 /* Fill in a value representing the given expression in
  * fully-evaluated form (e.g. symbols resolved to ints). On success,
@@ -45,6 +46,10 @@ void init_script(struct script *script)
 	script->option_list = NULL;
 	script->init_command = NULL;
 	script->event_list = NULL;
+	queue_init(&script->vars_queue);
+	queue_init_val(&script->vals_queue);
+	queue_init_val(&script->script_only_vals_queue);
+	script->vars = NULL;
 }
 
 /* This table maps expression types to human-readable strings */
@@ -743,4 +748,122 @@ int evaluate_expression_list(struct expression_list *in_list,
 		in_list = in_list->next;
 	}
 	return STATUS_OK;
+}
+
+/* Insert a COPY of name char* in vars_queue.  Error is returned if
+ * queue is full.
+ */
+int enqueue_var(struct script *script, char *name)
+{
+	unsigned name_length = strlen(name);
+	char *new_el = malloc(sizeof(char)*name_length+1);
+	memcpy(new_el, name, name_length);
+	new_el[name_length] = '\0';
+	int full_err = queue_enqueue(&script->vars_queue, new_el);
+	return full_err;
+}
+
+/* Caller should free. */
+int dequeue_var(struct script *script, char **name)
+{
+	int empty_err = queue_dequeue(&script->vars_queue, (void**)name);
+	return empty_err;
+}
+
+void free_vars(struct script *script)
+{
+	queue_free(&script->vars_queue);
+	queue_free_val(&script->vals_queue);
+        /* Iterate through hashmap, free var structs and
+	 * var->name.  Value is not freed for KEY type, since
+	 * values come from stack.
+	 */
+	struct var *next, *var;
+	var = script->vars;
+	while (var) {
+		next = var->hh.next;
+		free(var->name);
+		if (var->type == VAR_MP_CAPABLE_INFO) {
+			if(var->mp_capable_info.script_defined)
+				free(var->value);
+		}
+		free(var);
+		var = next;
+	}
+}
+
+/* Search in the hashmap for the value of the variable of name "name"
+ * and return both variable - value (var struct).  NULL is returned if
+ * not found.
+ */
+struct var *find_var(struct script *script, char *name)
+{
+	struct var *found;
+	HASH_FIND_STR(script->vars, name, found);
+	return found;
+}
+
+/* Returns the next value entered in script (enqueud). */
+u64 find_next_value(struct script *script)
+{
+	u64 val;
+	if(queue_dequeue_val(&script->vals_queue, &val))
+		return STATUS_ERR;
+	return val;
+}
+
+static void save_var_name(char *name, struct var *var)
+{
+	unsigned name_length = strlen(name);
+	var->name = malloc(sizeof(char)*(name_length+1));
+	memcpy(var->name, name, (name_length+1)); //+1 to copy '/0' too
+}
+
+/* Add var to the variable hashmap. */
+static void add_var(struct script *script, struct var *var)
+{
+	HASH_ADD_KEYPTR(hh, script->vars, var->name, strlen(var->name), var);
+}
+
+/* Save a variable <name, value> in variables hashmap, where value is
+ * of struct endpoint. Value is copied in a newly allocated pointer
+ * and will be freed when free_vars function will be executed.
+ */
+void add_var_addr(struct script *script, char *name, struct endpoint *endpoint)
+{
+	struct var *var = malloc(sizeof(struct var));
+	save_var_name(name, var);
+	var->value = malloc(sizeof(*endpoint));
+	memcpy(var->value, endpoint, sizeof(*endpoint));
+	var->type = VAR_ADDR;
+	add_var(script, var);
+}
+
+/* Save a variable <name, value> in variables hashmap, where value is
+ * of u64 type key. Key memory location should stay valid, name is
+ * copied.
+ */
+void add_var_key(struct script *script, char *name, u64 *key)
+{
+	struct var *var = malloc(sizeof(struct var));
+	save_var_name(name, var);
+	var->value = key;
+	var->type = VAR_MP_CAPABLE_INFO;
+	var->mp_capable_info.script_defined = false;
+	add_var(script, var);
+}
+
+/* Save a variable <name, value> in variables hashmap. Value is copied
+ * in a newly allocated pointer and will be freed when free_vars
+ * function will be executed.
+ */
+void add_var_script_defined(struct script *script, char *name, void *value, u32 length)
+{
+	struct var *var = malloc(sizeof(struct var));
+	save_var_name(name, var);
+	var->value = malloc(length);
+	memcpy(var->value, value, length);
+	var->type = VAR_MP_CAPABLE_INFO;
+	var->mp_capable_info.script_defined = true;
+	add_var(script, var);
 }

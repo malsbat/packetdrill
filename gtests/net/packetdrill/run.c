@@ -683,8 +683,7 @@ int parse_script_and_set_config(int argc, char *argv[],
 	DEBUGP("parse_and_run_script: %s\n", script_path);
 	assert(script_path != NULL);
 	//Initialize MPTCP state
-	init_mp_state();
-
+	init_mp_state(script);
 
 	init_script(script);
 

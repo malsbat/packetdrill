@@ -5,26 +5,20 @@
 #include "mptcp.h"
 #include "packet_to_string.h"
 
-void init_mp_state()
+void init_mp_state(struct script *script)
 {
 	mp_state.packetdrill_key_set = false;
 	mp_state.kernel_key_set = false;
-	queue_init(&mp_state.vars_queue);
-	queue_init_val(&mp_state.vals_queue);
-	queue_init_val(&mp_state.script_only_vals_queue);
-	mp_state.vars = NULL; //Init hashmap
 	mp_state.token = UNDEFINED;
 	mp_state.remote_token = UNDEFINED;
 	mp_state.idsn = UNDEFINED;
 	mp_state.remote_idsn = UNDEFINED;
 	mp_state.remote_ssn = 0;
 	mp_state.remote_last_pkt_length = 0;
+	mp_state.script = script;
 }
 
 void free_mp_state(){
-	free_var_queue();
-	free_val_queue();
-	free_vars();
 	free_flows();
 }
 
@@ -48,123 +42,7 @@ void set_kernel_key(u64 receiver_key)
     mp_state.kernel_key_set = true;
 }
 
-/* var_queue functions */
-
-/**
- * Insert a COPY of name char* in mp_state.vars_queue.
- * Error is returned if queue is full.
- *
- */
-int enqueue_var(char *name)
-{
-	unsigned name_length = strlen(name);
-	char *new_el = malloc(sizeof(char)*name_length+1);
-	memcpy(new_el, name, name_length);
-	new_el[name_length] = '\0';
-	int full_err = queue_enqueue(&mp_state.vars_queue, new_el);
-	return full_err;
-}
-
-//Caller should free
-int dequeue_var(char **name){
-	int empty_err = queue_dequeue(&mp_state.vars_queue, (void**)name);
-	return empty_err;
-}
-
-//Free all variables names (char*) in vars_queue
-void free_var_queue()
-{
-	queue_free(&mp_state.vars_queue);
-}
-
-//Free all added values in vals_queue
-void free_val_queue()
-{
-	queue_free_val(&mp_state.vals_queue);
-}
-
 /* hashmap functions */
-
-void save_mp_var_name(char *name, struct mp_var *var)
-{
-	unsigned name_length = strlen(name);
-	var->name = malloc(sizeof(char)*(name_length+1));
-	memcpy(var->name, name, (name_length+1)); //+1 to copy '/0' too
-}
-
-/**
- *
- * Save a variable <name, value> in variables hashmap.
- * Where value is of u64 type key.
- *
- * Key memory location should stay valid, name is copied.
- *
- */
-void add_mp_var_key(char *name, u64 *key)
-{
-	struct mp_var *var = malloc(sizeof(struct mp_var));
-	save_mp_var_name(name, var);
-	var->value = key;
-	var->mptcp_subtype = MP_CAPABLE_SUBTYPE;
-	var->mp_capable_info.script_defined = false;
-	add_mp_var(var);
-}
-
-/**
- *
- * Save a variable <name, value> in variables hashmap.
- * Where value is of struct endpoint.
- *
- * Value is copied in a newly allocated pointer and will be freed when
- * free_vars function will be executed.
- *
- */
-void add_mp_var_addr(char *name, struct endpoint *endpoint)
-{
-	struct mp_var *var = malloc(sizeof(struct mp_var));
-	save_mp_var_name(name, var);
-	var->value = malloc(sizeof(*endpoint));
-	memcpy(var->value, endpoint, sizeof(*endpoint));
-	var->mptcp_subtype = ADD_ADDR_SUBTYPE;
-	add_mp_var(var);
-}
-
-/**
- * Save a variable <name, value> in variables hashmap.
- * Value is copied in a newly allocated pointer and will be freed when
- * free_vars function will be executed.
- *
- */
-void add_mp_var_script_defined(char *name, void *value, u32 length)
-{
-	struct mp_var *var = malloc(sizeof(struct mp_var));
-	save_mp_var_name(name, var);
-	var->value = malloc(length);
-	memcpy(var->value, value, length);
-	var->mptcp_subtype = MP_CAPABLE_SUBTYPE;
-	var->mp_capable_info.script_defined = true;
-	add_mp_var(var);
-}
-
-/**
- * Add var to the variable hashmap.
- */
-void add_mp_var(struct mp_var *var)
-{
-	HASH_ADD_KEYPTR(hh, mp_state.vars, var->name, strlen(var->name), var);
-}
-
-/**
- * Search in the hashmap for the value of the variable of name "name" and
- * return both variable - value (mp_var struct).
- * NULL is returned if not found
- */
-struct mp_var *find_mp_var(char *name)
-{
-    struct mp_var *found;
-    HASH_FIND_STR(mp_state.vars, name, found);
-    return found;
-}
 
 /**
  * Gives next mptcp key value needed to insert variable values while processing
@@ -172,47 +50,16 @@ struct mp_var *find_mp_var(char *name)
  */
 u64 *find_next_key(){
 	char *var_name;
-	if(dequeue_var(&var_name) || !var_name){
+	if(dequeue_var(mp_state.script, &var_name) || !var_name){
 		return NULL;
 	}
 
-	struct mp_var *var = find_mp_var(var_name);
+	struct var *var = find_var(mp_state.script, var_name);
 	free(var_name);
-	if(!var || var->mptcp_subtype != MP_CAPABLE_SUBTYPE){
+	if(!var || var->type != VAR_MP_CAPABLE_INFO){
 		return NULL;
 	}
 	return (u64*)var->value;
-}
-
-/**
- * Iterate through hashmap, free mp_var structs and mp_var->name.
- * Value is not freed for KEY type, since values come from stack.
- */
-void free_vars()
-{
-	struct mp_var *next, *var;
-	var = mp_state.vars;
-
-	while(var){
-		next = var->hh.next;
-		free(var->name);
-		if(var->mptcp_subtype == MP_CAPABLE_SUBTYPE){
-			if(var->mp_capable_info.script_defined)
-				free(var->value);
-		}
-		free(var);
-		var = next;
-	}
-}
-
-/**
- * Returns the next value entered in script (enqueud)
- */
-u64 find_next_value(){
-	u64 val;
-	if(queue_dequeue_val(&mp_state.vals_queue, &val))
-		return STATUS_ERR;
-	return val;
 }
 
 void find_or_create_packetdrill_addr(u8 *address_id, struct ip_address **ip)
@@ -442,14 +289,14 @@ int mptcp_gen_key()
 
 	//Retrieve variable name parsed by bison.
 	char *snd_var_name;
-	if(queue_front(&mp_state.vars_queue, (void**)&snd_var_name))
+	if(queue_front(&mp_state.script->vars_queue, (void**)&snd_var_name))
 		return STATUS_ERR;
 
 	//Is that var has already a value assigned in the script by user, or should
 	//we generate a mptcp key ourselves?
-	struct mp_var *snd_var = find_mp_var(snd_var_name);
+	struct var *snd_var = find_var(mp_state.script, snd_var_name);
 
-	if(snd_var && snd_var->mptcp_subtype == MP_CAPABLE_SUBTYPE &&
+	if(snd_var && snd_var->type == VAR_MP_CAPABLE_INFO &&
 			snd_var->mp_capable_info.script_defined)
 		set_packetdrill_key(*(u64*)snd_var->value);
 
@@ -459,7 +306,7 @@ int mptcp_gen_key()
 		seed_generator();
 		u64 key = rand_64();
 		set_packetdrill_key(key);
-		add_mp_var_key(snd_var_name, &mp_state.packetdrill_key);
+		add_var_key(mp_state.script, snd_var_name, &mp_state.packetdrill_key);
 	}
 
 	return STATUS_OK;
@@ -513,9 +360,9 @@ static int extract_and_set_kernel_key(
 
 	//Check if kernel key hasn't been specified by user in script
 	char *var_name;
-	if(!queue_front(&mp_state.vars_queue, (void**)&var_name)){
-		struct mp_var *var = find_mp_var(var_name);
-		if(var && var->mptcp_subtype == MP_CAPABLE_SUBTYPE &&
+	if(!queue_front(&mp_state.script->vars_queue, (void**)&var_name)){
+		struct var *var = find_var(mp_state.script, var_name);
+		if(var && var->type == VAR_MP_CAPABLE_INFO &&
 				var->mp_capable_info.script_defined)
 			set_kernel_key(*(u64*)var->value);
 	}
@@ -526,10 +373,10 @@ static int extract_and_set_kernel_key(
 		set_kernel_key(mpcap_opt->data.mp_capable.syn.key);
 		//Set front queue variable name to refer to kernel key
 		char *var_name;
-		if(queue_front(&mp_state.vars_queue, (void**)&var_name)){
+		if(queue_front(&mp_state.script->vars_queue, (void**)&var_name)){
 			return STATUS_ERR;
 		}
-		add_mp_var_key(var_name, &mp_state.kernel_key);
+		add_var_key(mp_state.script, var_name, &mp_state.kernel_key);
 	}
 
 	return STATUS_OK;
@@ -639,7 +486,7 @@ static void mp_join_syn_rcv_token(struct tcp_option *tcp_opt_to_modify,
 	if(mp_join_script_info->syn_or_syn_ack.is_script_defined){
 
 		if(mp_join_script_info->syn_or_syn_ack.is_var){
-			struct mp_var *var = find_mp_var(mp_join_script_info->syn_or_syn_ack.var);
+			struct var *var = find_var(mp_state.script, mp_join_script_info->syn_or_syn_ack.var);
 			tcp_opt_to_modify->data.mp_join.syn.no_ack.receiver_token =
 					htonl(sha_most_32bits(*(u64*)var->value, mp_join_script_info->syn_or_syn_ack.algo));
 		}
@@ -780,10 +627,10 @@ static int mp_join_syn_ack(struct packet *packet_to_modify,
 
 		if(mp_join_script_info->syn_or_syn_ack.is_script_defined){
 			if(mp_join_script_info->syn_or_syn_ack.is_var){
-				struct mp_var *var =
-						find_mp_var(mp_join_script_info->syn_or_syn_ack.var);
-				struct mp_var *var2 =
-						find_mp_var(mp_join_script_info->syn_or_syn_ack.var2);
+				struct var *var =
+						find_var(mp_state.script, mp_join_script_info->syn_or_syn_ack.var);
+				struct var *var2 =
+						find_var(mp_state.script, mp_join_script_info->syn_or_syn_ack.var2);
 				mp_join_syn_ack_sender_hmac(tcp_opt_to_modify,
 									*(u64*)var->value,
 									*(u64*)var2->value,
@@ -850,7 +697,7 @@ int mptcp_subtype_mp_join(struct packet *packet_to_modify,
 						unsigned direction)
 {
 	struct mp_join_info *mp_join_script_info;
-	if(queue_dequeue(&mp_state.vars_queue, (void**)&mp_join_script_info))
+	if(queue_dequeue(&mp_state.script->vars_queue, (void**)&mp_join_script_info))
 		return STATUS_ERR;
 
 	if(direction == DIRECTION_INBOUND &&
@@ -920,8 +767,8 @@ int mptcp_subtype_mp_join(struct packet *packet_to_modify,
 			char *key_1 = mp_join_script_info->ack.var;
 			char *key_2 = mp_join_script_info->ack.var2;
 
-			struct mp_var *var1 = find_mp_var(key_1);
-			struct mp_var *var2 = find_mp_var(key_2);
+			struct var *var1 = find_var(mp_state.script, key_1);
+			struct var *var2 = find_var(mp_state.script, key_2);
 			if(var1==NULL || var2==NULL)
 				return STATUS_ERR;
 
@@ -1017,7 +864,7 @@ static int set_dack4(struct dack *dack_live, struct dack *dack_script)
 	if(dack_script->dack4 == UNDEFINED)
 		dack_live->dack4 = htobe32(mp_state.remote_idsn + mp_state.remote_ssn + mp_state.remote_last_pkt_length);
 	else if(dack_script->dack4 == SCRIPT_DEFINED_TO_HASH_LSB){
-		u64 additional_val 	= find_next_value();
+		u64 additional_val 	= find_next_value(mp_state.script);
 		u64 *key = find_next_key();
 		if(!key || additional_val==STATUS_ERR)
 			return STATUS_ERR;
@@ -1042,7 +889,7 @@ static int set_dack8(struct dack *dack_live, struct dack *dack_script)
 	if(dack_script->dack8 == UNDEFINED)
 		dack_live->dack8 = htonll(mp_state.remote_idsn + mp_state.remote_ssn);
 	else if(dack_script->dack8 == SCRIPT_DEFINED_TO_HASH_LSB){
-		u64 additional_val 	= find_next_value();
+		u64 additional_val 	= find_next_value(mp_state.script);
 		u64 *key = find_next_key();
 		if(!key || additional_val==STATUS_ERR)
 			return STATUS_ERR;
@@ -1066,7 +913,7 @@ static int set_dsn4(struct dsn *dsn_live, struct dsn *dsn_script)
 	if(dsn_script->dsn4 == UNDEFINED){
 		dsn_live->dsn4 = htonl(mp_state.idsn + bytes_sent_on_all_ssn);
 	}else if(dsn_script->dsn4 == SCRIPT_DEFINED_TO_HASH_LSB){
-		u64 additional_val 	= find_next_value();
+		u64 additional_val 	= find_next_value(mp_state.script);
 		u64 *key = find_next_key();
 		if(!key || additional_val==STATUS_ERR)
 			return STATUS_ERR;
@@ -1089,7 +936,7 @@ static int set_dsn8(struct dsn *dsn_live, struct dsn *dsn_script)
 	if(dsn_script->dsn8 == UNDEFINED)
 		dsn_live->dsn8 = htonll(mp_state.idsn + bytes_sent_on_all_ssn);
 	else if(dsn_script->dsn8 == SCRIPT_DEFINED_TO_HASH_LSB){
-		u64 additional_val 	= find_next_value();
+		u64 additional_val 	= find_next_value(mp_state.script);
 		u64 *key = find_next_key();
 		if(!key || additional_val==STATUS_ERR)
 			return STATUS_ERR;
@@ -1306,7 +1153,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(*dack_script == UNDEFINED){
 				*dack_script = *dack_live;
 			}else if(*dack_script == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key = find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1327,7 +1174,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(*dsn_script == UNDEFINED){
 				*dsn_script 		= *dsn_live;
 			}else if(*dsn_script == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key 			= find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1386,7 +1233,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(*dack_script == UNDEFINED){
 				*dack_script = *dack_live;
 			}else if(*dack_script == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key = find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1407,7 +1254,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(*dsn_script == UNDEFINED){
 				*dsn_script 		= *dsn_live;
 			}else if(*dsn_script == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key 			= find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1467,7 +1314,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(*dack_script == UNDEFINED){
 				*dack_script = *dack_live;
 			}else if(*dack_script == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key = find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1488,7 +1335,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(*dsn_script == UNDEFINED){
 				*dsn_script 		= *dsn_live;
 			}else if(*dsn_script == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key 			= find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1547,7 +1394,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(*dack_script == UNDEFINED){
 				*dack_script = *dack_live;
 			}else if(*dack_script == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key = find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1568,7 +1415,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(*dsn_script == UNDEFINED){
 				*dsn_script 		= *dsn_live;
 			}else if(*dsn_script == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key 			= find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1634,7 +1481,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(dss_opt_script->data.dss.dsn.dsn8 == UNDEFINED)
 				dss_opt_script->data.dss.dsn.dsn8 = dsn_live->dsn8; //htobe64
 			else if(dss_opt_script->data.dss.dsn.dsn8 == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key = find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1676,7 +1523,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(dss_opt_script->data.dss.dsn.dsn4 == UNDEFINED)
 				dss_opt_script->data.dss.dsn.dsn4 = dsn_live->dsn4;
 			else if(dss_opt_script->data.dss.dsn.dsn4 == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key = find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1719,7 +1566,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 			if(dss_opt_script->data.dss.dack.dack8 == UNDEFINED)
 				dss_opt_script->data.dss.dack.dack8 = dack_live->dack8;
 			else if(dss_opt_script->data.dss.dack.dack8 == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key = find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1747,7 +1594,7 @@ int dss_outbound_parser(struct packet *packet_to_modify,
 					return STATUS_ERR;
 				dss_opt_script->data.dss.dack.dack4 = htobe32((u32)*key);
 			}else if(dss_opt_script->data.dss.dack.dack4 == SCRIPT_DEFINED_TO_HASH_LSB){
-				u64 additional_val 	= find_next_value();
+				u64 additional_val 	= find_next_value(mp_state.script);
 				u64 *key = find_next_key();
 				if(!key || additional_val==STATUS_ERR)
 					return STATUS_ERR;
@@ -1803,10 +1650,10 @@ static struct endpoint *find_next_addr_outbound(struct packet *live_packet, stru
 	struct tcp_option* add_addr_live = get_mptcp_option(live_packet, ADD_ADDR_SUBTYPE);
 	struct endpoint *endpoint = NULL;
 	char *var_name;
-	if(dequeue_var(&var_name) || !var_name)
+	if(dequeue_var(mp_state.script, &var_name) || !var_name)
 		return NULL;
-	struct mp_var *var = find_mp_var(var_name);
-	if(var && var->mptcp_subtype == ADD_ADDR_SUBTYPE)
+	struct var *var = find_var(mp_state.script, var_name);
+	if(var && var->type == VAR_ADDR)
 		endpoint = (struct endpoint*)var->value;
 	if(endpoint == NULL){
 		struct endpoint live_endpoint;
@@ -1816,8 +1663,8 @@ static struct endpoint *find_next_addr_outbound(struct packet *live_packet, stru
 			live_endpoint.ip.ip.v4 = add_addr_live->data.add_addr.ipv4;
 		else
 			live_endpoint.ip.ip.v6 = add_addr_live->data.add_addr.ipv6;
-		add_mp_var_addr(var_name, &live_endpoint);
-		var = find_mp_var(var_name);
+		add_var_addr(mp_state.script, var_name, &live_endpoint);
+		var = find_var(mp_state.script, var_name);
 		endpoint = (struct endpoint*)var->value;
 	}
 	free(var_name);
@@ -1851,25 +1698,25 @@ static struct endpoint *find_next_addr_inbound(struct packet *live_packet, struc
 	struct tcp_option* add_addr_live = get_mptcp_option(live_packet, ADD_ADDR_SUBTYPE);
 	u8 address_id = add_addr_script->data.add_addr.address_id;
 	char *var_name;
-	if(dequeue_var(&var_name) || !var_name)
+	if(dequeue_var(mp_state.script, &var_name) || !var_name)
 		return NULL;
 	struct endpoint *endpoint = NULL;
-	struct mp_var *var = find_mp_var(var_name);
-	if(var && var->mptcp_subtype == ADD_ADDR_SUBTYPE)
+	struct var *var = find_var(mp_state.script, var_name);
+	if(var && var->type == VAR_ADDR)
 		endpoint = (struct endpoint*)var->value;
 	if(endpoint == NULL){
 		struct ip_address *ip = NULL;
 		find_or_create_packetdrill_addr(&address_id, &ip);
 		struct endpoint packetdrill_endpoint;
 		memcpy(&packetdrill_endpoint.ip, ip, sizeof(*ip));
-		add_mp_var_addr(var_name, &packetdrill_endpoint);
+		add_var_addr(mp_state.script, var_name, &packetdrill_endpoint);
 	}else{
 		struct ip_address *ip = NULL;
 		find_or_create_packetdrill_addr(&address_id, &ip);
 	}
-	var = find_mp_var(var_name);
+	var = find_var(mp_state.script, var_name);
 	free(var_name);
-	if(!var || var->mptcp_subtype != ADD_ADDR_SUBTYPE)
+	if(!var || var->type != VAR_ADDR)
 		return NULL;
 	endpoint = (struct endpoint*)var->value;
 	// the port may be updated for an existing endpoint
@@ -2125,7 +1972,7 @@ int mptcp_subtype_mp_fail(struct packet *packet_to_modify,
 		if (dss_opt_script->data.dss.dsn.dsn8 == UNDEFINED)
 			dss_opt_script->data.dss.dsn.dsn8 = htonll(mp_state.idsn + bytes_sent_on_all_ssn); //subflow->ssn);
 		else if(dss_opt_script->data.dss.dsn.dsn8 == SCRIPT_DEFINED_TO_HASH_LSB){
-			u64 additional_val = find_next_value();
+			u64 additional_val = find_next_value(mp_state.script);
 			u64 *key = find_next_key();
 			if(!key || additional_val == STATUS_ERR)
 				return STATUS_ERR;
@@ -2145,7 +1992,7 @@ int mptcp_subtype_mp_fail(struct packet *packet_to_modify,
 		if(dss_opt_script->data.mp_fail.dsn8 == UNDEFINED){
 			dss_opt_script->data.mp_fail.dsn8 		= dss_opt_live->data.mp_fail.dsn8;
 		}else if(dss_opt_script->data.dss.dsn.dsn8  == SCRIPT_DEFINED_TO_HASH_LSB){
-			u64 additional_val 	= find_next_value();
+			u64 additional_val 	= find_next_value(mp_state.script);
 			u64 *key 			= find_next_key();
 			if(!key || additional_val==STATUS_ERR)
 				return STATUS_ERR;
@@ -2190,7 +2037,7 @@ int mptcp_subtype_mp_fastclose(struct packet *packet_to_modify,
 			return STATUS_ERR;
 		dss_opt_script->data.mp_fastclose.receiver_key = htonll(*key);
 	}else if(dss_opt_script->data.mp_fastclose.receiver_key==MPTCP_KEY){ // <mp_fastclose b + 123>
-		u64 additional_val 	= find_next_value();
+		u64 additional_val 	= find_next_value(mp_state.script);
 		u64 *key = find_next_key();
 		if(!key || additional_val==STATUS_ERR)
 			return STATUS_ERR;
